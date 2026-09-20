@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neo-Futurism Board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #0a0c12;
+    --surface: #12151e;
+    --surface-2: #1a1e2a;
+    --line: #262b3a;
+    --text: #e7eaf3;
+    --muted: #7e8799;
+    --accent: #6fe3f0;
+    --danger: #ff6b9a;
+    --display: "Chakra Petch", "Bahnschrift", "DIN Alternate", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--text);
+    font-family: var(--body); font-size: 13px; line-height: 1.4; overflow: hidden;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .frame { height: 100%; display: grid; grid-template-rows: auto 1fr auto; background: var(--ground); position: relative; }
+
+  .rail-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); min-height: 44px;
+  }
+  .eyebrow {
+    font-family: var(--display); font-weight: 600; font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); display: flex; align-items: center; gap: 10px; min-width: 0;
+  }
+  .eyebrow a { color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .eyebrow a:hover { color: var(--accent); }
+  .eyebrow .tick { width: 6px; height: 6px; background: var(--accent); flex: none; box-shadow: 0 0 10px var(--accent); }
+  .meter { font-family: var(--display); font-size: 11px; letter-spacing: .06em; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .meter a { color: var(--muted); text-decoration: none; }
+  .meter a:hover { color: var(--accent); }
+
+  .stage {
+    position: relative; min-height: 0; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 120%, rgba(111,227,240,.08), transparent 60%), var(--ground);
+  }
+  .stage img.slide {
+    position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%;
+    object-fit: contain; display: block; padding: 12px; opacity: 1; transition: opacity .18s ease;
+  }
+  .stage img.slide.swapping { opacity: 0; }
+  .hit { position: absolute; top: 0; bottom: 0; width: 34%; cursor: pointer; }
+  .hit.prev { left: 0; } .hit.next { right: 0; }
+  .hit:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+
+  .empty {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; padding: 24px; text-align: center;
+  }
+  .empty .glyph { width: 56px; height: 56px; border: 1px dashed var(--line); display: grid; place-items: center; color: var(--muted); }
+  .empty .glyph svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .empty h2 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: .04em; text-wrap: balance; }
+  .empty p { margin: 0; color: var(--muted); max-width: 44ch; }
+  .empty code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text); background: var(--surface-2); padding: 1px 5px; }
+  .empty.error h2 { color: var(--danger); }
+
+  .rail-bottom {
+    border-top: 1px solid var(--line); padding: 8px 12px;
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  }
+  .nav {
+    width: 34px; height: 34px; display: grid; place-items: center;
+    border: 1px solid var(--line); background: var(--surface); transition: border-color .15s, color .15s;
+  }
+  .nav:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .nav:disabled { opacity: .35; cursor: default; }
+  .nav svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .center { display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; }
+  .counter { font-family: var(--display); font-weight: 600; font-size: 13px; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+  .counter .of { color: var(--muted); margin: 0 4px; }
+  .dots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; max-width: 100%; }
+  .dot {
+    width: 8px; height: 8px; padding: 0; border: 1px solid var(--muted); background: transparent; border-radius: 50%;
+    transition: background .15s, border-color .15s;
+  }
+  .dot:hover { border-color: var(--accent); }
+  .dot[aria-current="true"] { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .track { width: min(320px, 100%); height: 2px; background: var(--line); position: relative; }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); box-shadow: 0 0 8px var(--accent); transition: left .18s, width .18s; }
+
+  @media (max-width: 480px) { .rail-top { padding: 8px 12px; } .meter { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .stage img.slide, .track .fill, .dot, .nav { transition: none; } }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="rail-top">
+    <div class="eyebrow">
+      <span class="tick" aria-hidden="true"></span>
+      <a id="boardLink" href="https://www.pinterest.com/callieda1y/cyberpunk-neo-futurism/" target="_blank" rel="noopener">cyberpunk · neo-futurism</a>
+    </div>
+    <span class="meter" id="meter"></span>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="empty" id="empty">
+      <div class="glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>
+      </div>
+      <h2 id="emptyTitle">Loading photos…</h2>
+      <p id="emptyText"></p>
+    </div>
+    <img class="slide" id="slide" alt="" hidden>
+    <button class="hit prev" id="hitPrev" type="button" aria-label="Previous photo" hidden></button>
+    <button class="hit next" id="hitNext" type="button" aria-label="Next photo" hidden></button>
+  </div>
+
+  <div class="rail-bottom">
+    <button class="nav" id="prevBtn" type="button" aria-label="Previous" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div class="center">
+      <div class="counter"><span id="cur">00</span><span class="of">/</span><span id="total">00</span></div>
+      <div class="dots" id="dots" role="tablist" aria-label="Photos"></div>
+      <div class="track" id="track" hidden><div class="fill" id="fill"></div></div>
+    </div>
+    <button class="nav" id="nextBtn" type="button" aria-label="Next" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- Settings -----------------------------------------------------------
+  // Leave `repo` blank on GitHub Pages: it is worked out from the page URL
+  // (https://USER.github.io/REPO/ -> "USER/REPO"). Set it only on a custom domain.
+  const CONFIG = {
+    repo: '',
+    folder: 'images',      // folder in the repo that holds the photos
+    cacheMinutes: 10,      // how long a photo list is reused before asking GitHub again
+    maxDots: 24,
+  };
+  const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
+
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    stage: $('stage'), slide: $('slide'), empty: $('empty'), emptyTitle: $('emptyTitle'), emptyText: $('emptyText'),
+    hitPrev: $('hitPrev'), hitNext: $('hitNext'), prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
+    cur: $('cur'), total: $('total'), dots: $('dots'), track: $('track'), fill: $('fill'), meter: $('meter'),
+  };
+
+  let photos = [];   // [{name, src}]
+  let index = 0;
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  function render() {
+    const n = photos.length, has = n > 0;
+    if (index >= n) index = Math.max(0, n - 1);
+    el.empty.hidden = has;
+    el.slide.hidden = !has;
+    el.hitPrev.hidden = !has; el.hitNext.hidden = !has;
+    el.prevBtn.disabled = !has; el.nextBtn.disabled = !has;
+    el.cur.textContent = pad(has ? index + 1 : 0);
+    el.total.textContent = pad(n);
+
+    if (has) {
+      const p = photos[index];
+      if (el.slide.getAttribute('src') !== p.src) {
+        el.slide.classList.add('swapping');
+        const img = new Image();
+        img.onload = img.onerror = () => { el.slide.src = p.src; el.slide.alt = p.name; el.slide.classList.remove('swapping'); };
+        img.src = p.src;
+      }
+      for (const k of [index + 1, index - 1]) if (k >= 0 && k < n) { const w = new Image(); w.src = photos[k].src; }
+    }
+
+    if (n > 0 && n <= CONFIG.maxDots) {
+      el.track.hidden = true; el.dots.hidden = false;
+      while (el.dots.children.length > n) el.dots.lastChild.remove();
+      while (el.dots.children.length < n) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'dot'; b.setAttribute('role', 'tab');
+        b.addEventListener('click', () => go(Array.prototype.indexOf.call(el.dots.children, b)));
+        el.dots.appendChild(b);
+      }
+      Array.from(el.dots.children).forEach((d, i) => {
+        d.setAttribute('aria-current', i === index ? 'true' : 'false');
+        d.setAttribute('aria-label', 'Photo ' + (i + 1) + ' of ' + n);
+      });
+    } else {
+      el.dots.hidden = true; el.dots.replaceChildren();
+      el.track.hidden = n === 0;
+      if (n > 0) { el.fill.style.width = Math.max(100 / n, 2) + '%'; el.fill.style.left = (index * 100 / n) + '%'; }
+    }
+  }
+
+  function go(i) { const n = photos.length; if (!n) return; index = ((i % n) + n) % n; render(); }
+
+  el.prevBtn.addEventListener('click', () => go(index - 1));
+  el.nextBtn.addEventListener('click', () => go(index + 1));
+  el.hitPrev.addEventListener('click', () => go(index - 1));
+  el.hitNext.addEventListener('click', () => go(index + 1));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') { go(index - 1); e.preventDefault(); }
+    else if (e.key === 'ArrowRight' || e.key === ' ') { go(index + 1); e.preventDefault(); }
+  });
+  let touchX = null;
+  el.stage.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+  el.stage.addEventListener('touchend', (e) => {
+    if (touchX == null) return;
+    const dx = e.changedTouches[0].clientX - touchX; touchX = null;
+    if (Math.abs(dx) > 40) go(dx < 0 ? index + 1 : index - 1);
+  }, { passive: true });
+
+  // ---- Photo list ---------------------------------------------------------
+  function detectRepo() {
+    if (CONFIG.repo) return CONFIG.repo;
+    const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
+    const seg = location.pathname.split('/').filter(Boolean);
+    if (m && seg.length) return m[1] + '/' + seg[0];
+    return '';
+  }
+  function setEmpty(title, html, isError) {
+    el.emptyTitle.textContent = title; el.emptyText.innerHTML = html;
+    el.empty.classList.toggle('error', !!isError);
+  }
+  function fromNames(names) {
+    return names.filter(n => IMAGE_EXT.test(n)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(n => ({ name: n.replace(IMAGE_EXT, ''), src: CONFIG.folder + '/' + encodeURIComponent(n) }));
+  }
+
+  async function loadList() {
+    const repo = detectRepo();
+    const cacheKey = 'board-list:' + repo + ':' + CONFIG.folder;
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (_) {}
+    const fresh = cached && (Date.now() - cached.at) < CONFIG.cacheMinutes * 60000;
+    if (cached && Array.isArray(cached.names)) { photos = fromNames(cached.names); render(); }
+    if (fresh) return finish(repo);
+
+    // 1) Ask GitHub what is in the folder (works for any public repo, no key needed).
+    if (repo) {
+      try {
+        const r = await fetch('https://api.github.com/repos/' + repo + '/contents/' + CONFIG.folder, { headers: { Accept: 'application/vnd.github+json' } });
+        if (r.ok) {
+          const items = await r.json();
+          const names = (Array.isArray(items) ? items : []).filter(i => i.type === 'file').map(i => i.name);
+          photos = fromNames(names);
+          try { localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), names })); } catch (_) {}
+          render(); return finish(repo);
+        }
+        if (r.status === 404 && !cached) {
+          setEmpty('No images folder yet', 'Create a folder called <code>' + CONFIG.folder + '</code> in the repo and upload photos into it.', true);
+          return;
+        }
+        // 403 = rate limit; fall through to the manifest / cache
+      } catch (_) { /* offline or blocked; fall through */ }
+    }
+
+    // 2) Fallback: an optional images/list.json with ["a.jpg", "b.png", ...]
+    try {
+      const r = await fetch(CONFIG.folder + '/list.json', { cache: 'no-store' });
+      if (r.ok) { const names = await r.json(); photos = fromNames(names); render(); return finish(repo); }
+    } catch (_) {}
+
+    if (!photos.length) {
+      setEmpty(repo ? 'Could not load the photo list' : 'Not on GitHub Pages',
+        repo ? 'GitHub did not answer (usually a temporary rate limit). It will retry next time the page opens.'
+             : 'Set <code>CONFIG.repo</code> to <code>user/repo</code> at the top of the script, or add <code>' + CONFIG.folder + '/list.json</code>.', true);
+    }
+  }
+
+  function finish(repo) {
+    if (!photos.length) {
+      setEmpty('No photos yet', 'Upload images to the <code>' + CONFIG.folder + '</code> folder of the repo and reload.');
+    }
+    el.meter.innerHTML = photos.length
+      ? photos.length + ' photos' + (repo ? ' · <a href="https://github.com/' + repo + '/tree/main/' + CONFIG.folder + '" target="_blank" rel="noopener">add more</a>' : '')
+      : '';
+  }
+
+  render();
+  loadList();
+})();
+</script>
+</body>
+</html>
