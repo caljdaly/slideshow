@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Ambient Audios</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #0a0c12;
+    --surface: #12151e;
+    --surface-2: #1a1e2a;
+    --line: #262b3a;
+    --text: #e7eaf3;
+    --muted: #7e8799;
+    --accent: #c9a0ff;          /* a softer violet for the audio widget, sibling to the board's cyan */
+    --accent-ink: #1b0f2e;
+    --danger: #ff6b9a;
+    --display: "Chakra Petch", "Bahnschrift", "DIN Alternate", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--text);
+    font-family: var(--body); font-size: 13px; line-height: 1.4; overflow: hidden;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .frame { height: 100%; display: grid; grid-template-rows: auto 1fr auto; background: var(--ground); }
+
+  /* Visualizer strip — simulated, driven by the player's play/pause state */
+  .viz {
+    position: relative; height: 76px; border-bottom: 1px solid var(--line);
+    background:
+      linear-gradient(180deg, rgba(124,92,255,.05), transparent 45%, rgba(79,209,255,.04)),
+      var(--ground);
+    overflow: hidden;
+  }
+  .viz canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .viz::after {   /* faint scanlines, the only ornament */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(180deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
+  }
+
+  .stage { position: relative; min-height: 0; background: #000; }
+  .stage iframe, .stage #player { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .notice {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; padding: 24px; text-align: center; background: var(--ground); z-index: 2;
+  }
+  .notice h2 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: .04em; text-wrap: balance; }
+  .notice p { margin: 0; color: var(--muted); max-width: 44ch; }
+  .notice.error h2 { color: var(--danger); }
+
+  .rail {
+    border-top: 1px solid var(--line);
+    padding: 10px 14px;
+    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
+  }
+  .now { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .now .label {
+    font-family: var(--display); font-weight: 600; font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--muted); display: flex; align-items: center; gap: 8px;
+  }
+  .now .label .pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none;
+  }
+  .now .label .pulse.on { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .now .title {
+    font-size: 14px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .now .title.idle { color: var(--muted); font-weight: 400; }
+  .now .count { font-family: var(--display); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .controls { display: flex; align-items: center; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; height: 34px;
+    padding: 0 12px; border: 1px solid var(--line); background: var(--surface);
+    font-family: var(--display); font-weight: 600; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.primary:hover:not(:disabled) { background: #dcbfff; color: var(--accent-ink); }
+  .btn.icon { width: 34px; padding: 0; justify-content: center; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Playlist drawer */
+  .drawer {
+    position: absolute; top: 0; right: 0; bottom: 0; width: min(300px, 88%);
+    background: rgba(14,16,24,.96); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; z-index: 3;
+    transform: translateX(100%); transition: transform .22s ease;
+    backdrop-filter: blur(6px);
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 12px; border-bottom: 1px solid var(--line);
+    font-family: var(--display); font-weight: 600; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted);
+  }
+  .drawer-head .btn.icon { width: 28px; height: 28px; }
+  .drawer ol { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+  .track {
+    display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center;
+    width: 100%; padding: 6px; text-align: left; border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .track:hover { background: var(--surface-2); }
+  .track[aria-current="true"] { border-color: var(--accent); background: rgba(201,160,255,.08); }
+  .track img { width: 56px; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: var(--surface-2); }
+  .track .t { min-width: 0; }
+  .track .t .name { font-size: 12.5px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .track .t .num { font-family: var(--display); font-size: 10px; letter-spacing: .1em; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .track[aria-current="true"] .t .num { color: var(--accent); }
+  .scrim { position: absolute; inset: 0; z-index: 2; background: transparent; }
+  .drawer-empty { padding: 18px 14px; color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 480px) {
+    .rail { padding: 8px 10px; }
+    .btn.primary .label { display: none; }
+    .btn.primary { width: 34px; padding: 0; justify-content: center; }
+  }
+  @media (prefers-reduced-motion: reduce) { .now .label .pulse.on { animation: none; } .btn { transition: none; } }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="viz" aria-hidden="true"><canvas id="viz"></canvas></div>
+  <div class="stage">
+    <iframe id="player" title="Ambient audios player"
+      src="https://www.youtube.com/embed?listType=playlist&amp;list=PLCesCCiWAh50&amp;enablejsapi=1&amp;rel=0&amp;playsinline=1&amp;iv_load_policy=3"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allow="autoplay; encrypted-media; picture-in-picture"
+      allowfullscreen></iframe>
+    <div class="notice" id="notice">
+      <h2 id="noticeTitle">Loading playlist…</h2>
+      <p id="noticeText"></p>
+    </div>
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="drawer" id="drawer" aria-label="Playlist" aria-hidden="true">
+      <div class="drawer-head">
+        <span>playlist · <span id="drawerCount">–</span></span>
+        <button class="btn icon" id="drawerClose" type="button" aria-label="Close playlist">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <ol id="trackList"></ol>
+    </aside>
+  </div>
+  <div class="rail">
+    <div class="now">
+      <div class="label"><span class="pulse" id="pulse" aria-hidden="true"></span><span>now playing:</span></div>
+      <div class="title idle" id="title">—</div>
+      <div class="count" id="count"></div>
+    </div>
+    <div class="controls">
+      <button class="btn icon" id="listBtn" type="button" aria-label="Show playlist" aria-expanded="false" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      </button>
+      <button class="btn icon" id="backBtn" type="button" aria-label="Previous (from history)" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <button class="btn primary" id="shuffleBtn" type="button" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+        <span class="label">Shuffle</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- Settings -----------------------------------------------------------
+  const PLAYLIST_ID = 'PLCesCCiWAh50';   // YouTube playlist "ambient audios"
+  const AUTO_NEXT = true;                 // jump to another random video when one ends
+
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    notice: $('notice'), noticeTitle: $('noticeTitle'), noticeText: $('noticeText'),
+    title: $('title'), count: $('count'), pulse: $('pulse'),
+    backBtn: $('backBtn'), shuffleBtn: $('shuffleBtn'),
+    listBtn: $('listBtn'), drawer: $('drawer'), drawerClose: $('drawerClose'), drawerCount: $('drawerCount'),
+    trackList: $('trackList'), scrim: $('scrim'),
+  };
+
+  let player = null;
+  let playlist = [];        // video ids, in playlist order (may arrive late — YouTube only reports it once something is cued)
+  let unplayed = [];        // indexes not yet played this cycle
+  let history = [];         // indexes played, for the back button
+  let current = -1;
+  let titleTimer = null;
+  let pickedStart = false;  // whether we've already jumped to a random starting video
+  let ytShuffle = false;    // fallback: YouTube's own shuffle, used until the list is known
+
+  function setNotice(title, text, isError) {
+    el.noticeTitle.textContent = title;
+    el.noticeText.textContent = text || '';
+    el.notice.classList.toggle('error', !!isError);
+    el.notice.hidden = false;
+  }
+  function hideNotice() { el.notice.hidden = true; }
+
+  function refillUnplayed(except) {
+    unplayed = playlist.map((_, i) => i).filter(i => i !== except);
+  }
+  function pickRandom() {
+    if (!playlist.length) return -1;
+    if (!unplayed.length) refillUnplayed(current);
+    const k = Math.floor(Math.random() * unplayed.length);
+    return unplayed.splice(k, 1)[0];
+  }
+
+  // ---- Playlist drawer ------------------------------------------------------
+  const titles = {};   // videoId -> title (learned from lookups or from playback)
+  try { Object.assign(titles, JSON.parse(localStorage.getItem('ambient-titles') || '{}')); } catch (_) {}
+  function rememberTitle(id, title) {
+    if (!id || !title || titles[id] === title) return;
+    titles[id] = title;
+    try { localStorage.setItem('ambient-titles', JSON.stringify(titles)); } catch (_) {}
+    const row = el.trackList.querySelector('[data-id="' + id + '"] .name');
+    if (row) row.textContent = title;
+  }
+  async function lookupTitle(id) {
+    if (titles[id]) return;
+    const watch = 'https://www.youtube.com/watch?v=' + id;
+    const tries = [
+      'https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(watch),
+      'https://noembed.com/embed?url=' + encodeURIComponent(watch),
+    ];
+    for (const u of tries) {
+      try {
+        const r = await fetch(u);
+        if (!r.ok) continue;
+        const j = await r.json();
+        if (j && j.title) { rememberTitle(id, j.title); return; }
+      } catch (_) { /* try the next */ }
+    }
+  }
+  function buildTrackList() {
+    el.trackList.replaceChildren();
+    el.drawerCount.textContent = playlist.length;
+    playlist.forEach((id, i) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'track'; b.dataset.id = id;
+      const img = document.createElement('img');
+      img.src = 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg'; img.alt = ''; img.loading = 'lazy';
+      const t = document.createElement('div'); t.className = 't';
+      const name = document.createElement('div'); name.className = 'name'; name.textContent = titles[id] || 'Track ' + (i + 1);
+      const num = document.createElement('div'); num.className = 'num'; num.textContent = String(i + 1).padStart(2, '0');
+      t.append(name, num); b.append(img, t); li.appendChild(b); el.trackList.appendChild(li);
+      b.addEventListener('click', () => { playIndex(i); closeDrawer(); });
+    });
+    markCurrent();
+    // Look titles up a few at a time so the list fills in without hammering the lookup.
+    (async () => { for (const id of playlist) await lookupTitle(id); })();
+  }
+  function markCurrent() {
+    const idx = player && typeof player.getPlaylistIndex === 'function' ? player.getPlaylistIndex() : current;
+    Array.from(el.trackList.children).forEach((li, i) => {
+      li.firstChild.setAttribute('aria-current', i === idx ? 'true' : 'false');
+    });
+  }
+  function openDrawer() {
+    if (!playlist.length) return;
+    el.drawer.classList.add('open'); el.drawer.setAttribute('aria-hidden', 'false');
+    el.scrim.hidden = false; el.listBtn.setAttribute('aria-expanded', 'true');
+    markCurrent();
+    const cur = el.trackList.querySelector('[aria-current="true"]');
+    if (cur) cur.scrollIntoView({ block: 'center' });
+  }
+  function closeDrawer() {
+    el.drawer.classList.remove('open'); el.drawer.setAttribute('aria-hidden', 'true');
+    el.scrim.hidden = true; el.listBtn.setAttribute('aria-expanded', 'false');
+  }
+  el.listBtn.addEventListener('click', () => el.drawer.classList.contains('open') ? closeDrawer() : openDrawer());
+  el.drawerClose.addEventListener('click', closeDrawer);
+  el.scrim.addEventListener('click', closeDrawer);
+
+  // The playlist can show up late; adopt it whenever the player finally reports it.
+  function adoptPlaylist() {
+    if (playlist.length || !player || typeof player.getPlaylist !== 'function') return;
+    const list = player.getPlaylist();
+    if (Array.isArray(list) && list.length) {
+      playlist = list;
+      refillUnplayed(player.getPlaylistIndex());
+      el.shuffleBtn.disabled = false;
+      el.listBtn.disabled = false;
+      buildTrackList();
+    }
+  }
+
+  function updateTitle() {
+    if (!player || typeof player.getVideoData !== 'function') return;
+    adoptPlaylist();
+    const data = player.getVideoData() || {};
+    const idx = typeof player.getPlaylistIndex === 'function' ? player.getPlaylistIndex() : current;
+    if (data.title) {
+      if (el.title.textContent !== data.title) viz.newTrack();
+      el.title.textContent = data.title;
+      el.title.classList.remove('idle');
+      el.title.title = data.title;
+      rememberTitle(data.video_id || (playlist[idx]), data.title);
+    }
+    if (playlist.length) markCurrent();
+    if (playlist.length && idx >= 0) el.count.textContent = String(idx + 1).padStart(2, '0') + ' / ' + String(playlist.length).padStart(2, '0');
+    el.backBtn.disabled = playlist.length ? history.length < 2 : !ytShuffle;
+  }
+  function watchTitle() {
+    clearInterval(titleTimer);
+    let tries = 0;
+    titleTimer = setInterval(() => { updateTitle(); if (++tries > 20) clearInterval(titleTimer); }, 250);
+  }
+
+  function playIndex(i, { record = true, cueOnly = false } = {}) {
+    if (i < 0 || i >= playlist.length) return;
+    current = i;
+    if (record) history.push(i);
+    if (cueOnly) player.cuePlaylist({ listType: 'playlist', list: PLAYLIST_ID, index: i });
+    else player.playVideoAt(i);
+    watchTitle();
+  }
+
+  function shuffle() {
+    adoptPlaylist();
+    if (playlist.length) { const i = pickRandom(); if (i >= 0) playIndex(i); return; }
+    // List not reported yet: lean on YouTube's own shuffle.
+    if (!ytShuffle) { try { player.setShuffle(true); } catch (_) {} ytShuffle = true; }
+    try { player.nextVideo(); } catch (_) {}
+    watchTitle();
+  }
+  function back() {
+    if (!playlist.length) { try { player.previousVideo(); } catch (_) {} watchTitle(); return; }
+    if (history.length < 2) return;
+    history.pop();                       // drop the current one
+    const prev = history[history.length - 1];
+    playIndex(prev, { record: false });
+  }
+
+  el.shuffleBtn.addEventListener('click', shuffle);
+  el.backBtn.addEventListener('click', back);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeDrawer(); return; }
+    if (e.key === 'l' || e.key === 'L') { el.listBtn.click(); return; }
+    if (e.key === 'n' || e.key === 'N' || e.key === 'ArrowRight') shuffle();
+    if (e.key === 'ArrowLeft') back();
+  });
+
+  // ---- YouTube player -------------------------------------------------------
+  window.onYouTubeIframeAPIReady = function () {
+    // Attach to the iframe written in the HTML (it carries referrerpolicy, which
+    // YouTube now requires — without it the player shows error 153).
+    player = new YT.Player('player', {
+      events: {
+        onReady: () => {
+          hideNotice();
+          el.shuffleBtn.disabled = false;      // works even before the list arrives (YouTube-side shuffle)
+          // Cue the playlist explicitly; some embeds don't populate it from playerVars alone.
+          try { player.cuePlaylist({ listType: 'playlist', list: PLAYLIST_ID }); } catch (_) {}
+          // Poll briefly for the list so we can jump to a random start without auto-playing.
+          let tries = 0;
+          const wait = setInterval(() => {
+            adoptPlaylist();
+            tries++;
+            if (playlist.length) {
+              clearInterval(wait);
+              if (!pickedStart) {
+                pickedStart = true;
+                const first = pickRandom();
+                playIndex(first, { cueOnly: true });   // cued, not auto-played: browsers block sound on load
+              }
+            } else if (tries > 40) {
+              clearInterval(wait);
+              // No list yet — that's fine: the first video is cued; Shuffle uses YouTube's shuffle until the list shows up.
+              updateTitle();
+            }
+          }, 250);
+        },
+        onStateChange: (e) => {
+          const S = YT.PlayerState;
+          el.pulse.classList.toggle('on', e.data === S.PLAYING);
+          viz.playing(e.data === S.PLAYING || e.data === S.BUFFERING);
+          updateTitle();
+          if (e.data === S.ENDED && AUTO_NEXT) shuffle();
+        },
+        onError: (e) => {
+          if (e.data === 2) {
+            setNotice('Playlist not found', 'YouTube rejected the playlist ID "' + PLAYLIST_ID + '". Open the playlist on YouTube, copy the full link (the part after list=), and update PLAYLIST_ID at the top of ambient.html.', true);
+            return;
+          }
+          if (e.data === 5) {
+            setNotice('Player error', 'YouTube’s player failed to start. Reload the page; if it keeps happening, an ad blocker may be interfering.', true);
+            return;
+          }
+          // 101/150: embedding disabled by the uploader; 100: removed/private. Skip it.
+          if ([100, 101, 150].includes(e.data)) {
+            el.title.textContent = 'That one can’t be played here — skipping';
+            setTimeout(shuffle, 800);
+          }
+        },
+      },
+    });
+  };
+
+  // ---- Visualizer (simulated) -----------------------------------------------
+  // The embed's audio can't be read by the page, so this strip is driven by
+  // play/pause state and slow layered waves: calm motion while playing, a
+  // near-flat idle line when paused, and a fresh pattern for each new video.
+  const viz = (function () {
+    const canvas = $('viz');
+    const ctx = canvas.getContext('2d');
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let W = 0, H = 0, dpr = 1;
+    let energy = 0.10, targetEnergy = 0.10;   // 0.10 idle, 1 playing
+    let seed = Math.random() * 1000;
+    let phases = [];
+    let last = 0;
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = canvas.clientWidth; H = canvas.clientHeight;
+      canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    function reseed() {
+      seed = Math.random() * 1000;
+      phases = Array.from({ length: 8 }, () => Math.random() * Math.PI * 2);
+    }
+    // Smooth pseudo-noise from a few slow sines; x is bar position (0..1), t seconds.
+    function wave(x, t) {
+      let v = 0;
+      v += 0.42 * Math.sin(x * 4.0 + t * 0.35 + phases[0]);
+      v += 0.28 * Math.sin(x * 9.0 - t * 0.22 + phases[1]);
+      v += 0.18 * Math.sin(x * 17.0 + t * 0.55 + phases[2]);
+      v += 0.12 * Math.sin(x * 31.0 - t * 0.41 + phases[3] + seed);
+      // a slow swell that travels left to right, like a breath
+      v += 0.30 * Math.sin(x * 2.2 - t * 0.18 + phases[4]);
+      return (v + 1.3) / 2.6;      // ~0..1
+    }
+    function color(x, a) {
+      // violet -> cyan across the strip, with a magenta tint at the far right edge
+      const stops = [[124, 92, 255], [79, 209, 255], [255, 107, 214]];
+      const p = x < 0.72 ? x / 0.72 : (x - 0.72) / 0.28;
+      const [c0, c1] = x < 0.72 ? [stops[0], stops[1]] : [stops[1], stops[2]];
+      const r = Math.round(c0[0] + (c1[0] - c0[0]) * p);
+      const g = Math.round(c0[1] + (c1[1] - c0[1]) * p);
+      const b = Math.round(c0[2] + (c1[2] - c0[2]) * p);
+      return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+    }
+    function draw(now) {
+      const t = now / 1000;
+      const dt = Math.min((now - last) / 1000, 0.1); last = now;
+      energy += (targetEnergy - energy) * Math.min(1, dt * 1.6);   // slow ease in/out
+
+      ctx.clearRect(0, 0, W, H);
+      const gap = 3, bw = 4, step = bw + gap;
+      const n = Math.max(24, Math.floor((W - 16) / step));
+      const x0 = (W - n * step + gap) / 2;
+      const mid = H / 2, maxH = H * 0.47;
+      const seg = 3, segGap = 1;   // LED-style segments
+
+      // idle: a soft centre line so the strip never looks dead
+      ctx.fillStyle = 'rgba(124,92,255,' + (0.10 + 0.25 * (1 - energy)) + ')';
+      ctx.fillRect(x0, mid - 0.5, n * step - gap, 1);
+
+      for (let i = 0; i < n; i++) {
+        const x = i / (n - 1);
+        const w = wave(x, t);
+        // quiet floor + shaped amplitude; a gentle taper at the edges
+        const edge = 0.55 + 0.45 * Math.sin(Math.PI * x);
+        const shaped = Math.pow(w, 1.8);                      // more contrast between swells and lulls
+        const h = maxH * edge * (0.06 + 0.94 * shaped * energy);
+        const px = x0 + i * step;
+        const segs = Math.max(1, Math.floor(h / (seg + segGap)));
+        for (let s = 0; s < segs; s++) {
+          const alpha = 0.32 + 0.55 * (1 - s / Math.max(segs, 6)) ; // brighter near the centre line
+          ctx.fillStyle = color(x, Math.min(0.92, alpha) * (0.55 + 0.45 * energy));
+          const y = s * (seg + segGap) + 1;
+          ctx.fillRect(px, mid - y - seg, bw, seg);        // up
+          ctx.fillRect(px, mid + y, bw, seg);              // mirrored down
+        }
+      }
+      // soft glow pass along the centre, fading with energy
+      const grad = ctx.createLinearGradient(0, mid - 14, 0, mid + 14);
+      grad.addColorStop(0, 'rgba(79,209,255,0)');
+      grad.addColorStop(0.5, 'rgba(79,209,255,' + (0.05 + 0.07 * energy) + ')');
+      grad.addColorStop(1, 'rgba(79,209,255,0)');
+      ctx.fillStyle = grad; ctx.fillRect(0, mid - 14, W, 28);
+
+      if (!reduced) requestAnimationFrame(draw);
+    }
+
+    reseed(); resize();
+    window.addEventListener('resize', resize);
+    if (reduced) { energy = 0.35; draw(0); } else requestAnimationFrame(draw);
+
+    return {
+      playing(on) { targetEnergy = on ? 1 : 0.10; },
+      newTrack() { reseed(); },
+    };
+  })();
+
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  tag.onerror = () => setNotice('YouTube didn’t load', 'Check your connection or an ad blocker, then reload.', true);
+  document.head.appendChild(tag);
+})();
+</script>
+</body>
+</html>
