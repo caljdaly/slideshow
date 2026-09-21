@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Heatmap</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #0a0c12; --surface: #12151e; --surface-2: #1a1e2a; --line: #262b3a;
+    --text: #e7eaf3; --muted: #7e8799;
+    --violet: #7c5cff; --cyan: #4fd1ff; --magenta: #ff6bd6; --accent: #c9a0ff;
+    --display: "Chakra Petch", "Bahnschrift", "DIN Alternate", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); font-size: 13px; line-height: 1.4; overflow: hidden; }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .frame { height: 100%; display: grid; grid-template-rows: auto 1fr auto; padding: 10px 14px 10px; gap: 8px; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .eyebrow { font-family: var(--display); font-weight: 600; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .eyebrow .tick { width: 6px; height: 6px; background: var(--violet); box-shadow: 0 0 10px var(--violet); }
+  .stats { display: flex; gap: 16px; }
+  .stats div { font-family: var(--display); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: right; }
+  .stats b { display: block; font-size: 15px; letter-spacing: .04em; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+
+  .gridwrap { position: relative; min-height: 0; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+  .grid { display: grid; grid-auto-flow: column; grid-template-rows: auto repeat(7, 1fr); gap: 3px; align-content: start; width: max-content; min-width: 100%; }
+  .dl { font-family: var(--display); font-size: 8px; letter-spacing: .1em; color: var(--muted); align-self: center; padding-right: 6px; line-height: 1; }
+  .ml { font-family: var(--display); font-size: 8px; letter-spacing: .1em; color: var(--muted); height: 12px; line-height: 12px; white-space: nowrap; }
+  .cell { width: 13px; height: 13px; background: var(--surface); border: 1px solid var(--line); transition: transform .1s; }
+  .cell:hover { transform: scale(1.25); border-color: var(--text); z-index: 1; }
+  .cell.l1 { background: #2f2560; border-color: #3d2f7f; }
+  .cell.l2 { background: #5a45c9; border-color: #6d55e6; }
+  .cell.l3 { background: #6a90ff; border-color: #7ea6ff; }
+  .cell.l4 { background: var(--cyan); border-color: #8ae4ff; box-shadow: 0 0 8px rgba(79,209,255,.55); }
+  .cell.today { outline: 1px solid var(--magenta); outline-offset: 1px; }
+  .cell.future { opacity: .35; }
+
+  .tip { position: absolute; pointer-events: none; background: var(--surface-2); border: 1px solid var(--line); padding: 4px 8px; font-size: 11px; white-space: nowrap; transform: translate(-50%, calc(-100% - 8px)); z-index: 2; }
+  .tip b { font-family: var(--display); letter-spacing: .06em; color: var(--accent); }
+
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: var(--display); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .legend { display: flex; align-items: center; gap: 4px; }
+  .legend .cell { width: 10px; height: 10px; }
+  .legend .cell:hover { transform: none; }
+  .foot button { color: var(--muted); font-family: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; padding: 3px 6px; border: 1px solid var(--line); }
+  .foot button:hover { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="head">
+    <div class="eyebrow"><span class="tick" aria-hidden="true"></span><span>study sessions · fall</span></div>
+    <div class="stats">
+      <div>this week<b id="week">0h</b></div>
+      <div>term<b id="total">0h</b></div>
+      <div>streak<b id="streak">0d</b></div>
+      <div>best<b id="best">0d</b></div>
+    </div>
+  </div>
+  <div class="gridwrap" id="wrap"><div class="grid" id="grid"></div><div class="tip" id="tip" hidden></div></div>
+  <div class="foot">
+    <div class="legend"><span>less</span><span class="cell"></span><span class="cell l1"></span><span class="cell l2"></span><span class="cell l3"></span><span class="cell l4"></span><span>more</span></div>
+    <div><button id="logBtn" type="button" title="Add a 25-minute session to today by hand">+ log 25 min</button></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const LOG_KEY = 'study-log';                 // written by focus.html
+  const TERM_START = '2026-09-01';             // first column
+  const TERM_END = '2026-12-20';               // last column
+  const LEVELS = [1, 50, 100, 150];            // minutes → l1..l4 thresholds
+
+  const $ = (id) => document.getElementById(id);
+  const el = { grid: $('grid'), wrap: $('wrap'), tip: $('tip'), week: $('week'), total: $('total'), streak: $('streak'), best: $('best'), logBtn: $('logBtn') };
+  const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const key = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const parse = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+  const hours = (m) => (m / 60).toFixed(m % 60 ? 1 : 0) + 'h';
+  function readLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || '{}'); } catch (_) { return {}; } }
+
+  function level(min) { let l = 0; LEVELS.forEach((t, i) => { if (min >= t) l = i + 1; }); return l; }
+
+  function render() {
+    const log = readLog();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const start = parse(TERM_START); start.setDate(start.getDate() - start.getDay());   // back to Sunday
+    const end = parse(TERM_END);
+    el.grid.replaceChildren();
+
+    // day labels column
+    const corner = document.createElement('div'); corner.className = 'ml'; el.grid.appendChild(corner);
+    DAYS.forEach((d, i) => { const l = document.createElement('div'); l.className = 'dl'; l.textContent = i % 2 ? d : ''; el.grid.appendChild(l); });
+
+    let d = new Date(start), lastMonth = -1, total = 0, week = 0;
+    const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
+    while (d <= end) {
+      const ml = document.createElement('div'); ml.className = 'ml';
+      if (d.getMonth() !== lastMonth) { ml.textContent = MONTHS[d.getMonth()]; lastMonth = d.getMonth(); }
+      el.grid.appendChild(ml);
+      for (let i = 0; i < 7; i++) {
+        const k = key(d); const rec = log[k];
+        const min = rec ? rec.minutes : 0; total += min; if (d >= weekStart && d <= today) week += min;
+        const c = document.createElement('div');
+        c.className = 'cell' + (min ? ' l' + level(min) : '') + (k === key(today) ? ' today' : '') + (d > today ? ' future' : '');
+        c.dataset.k = k; c.dataset.min = min; c.dataset.s = rec ? rec.sessions : 0;
+        el.grid.appendChild(c);
+        d.setDate(d.getDate() + 1);
+      }
+    }
+    el.total.textContent = hours(total); el.week.textContent = hours(week);
+    // streaks
+    let cur = 0, best = 0, run = 0; const t = new Date(today);
+    if (!log[key(t)]) t.setDate(t.getDate() - 1);
+    while (log[key(t)] && log[key(t)].sessions > 0) { cur++; t.setDate(t.getDate() - 1); }
+    Object.keys(log).sort().forEach((k, i, arr) => {
+      const prev = i ? parse(arr[i - 1]) : null; const cd = parse(k);
+      run = prev && (cd - prev) === 86400000 && log[k].sessions > 0 ? run + 1 : (log[k].sessions > 0 ? 1 : 0);
+      best = Math.max(best, run);
+    });
+    el.streak.textContent = cur + 'd'; el.best.textContent = best + 'd';
+    // scroll so today is in view
+    const tc = el.grid.querySelector('.cell.today'); if (tc) el.wrap.scrollLeft = Math.max(0, tc.offsetLeft - el.wrap.clientWidth * 0.7);
+  }
+
+  el.grid.addEventListener('mousemove', (e) => {
+    const c = e.target.closest('.cell'); if (!c) { el.tip.hidden = true; return; }
+    const dt = parse(c.dataset.k);
+    el.tip.innerHTML = '<b>' + dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + '</b> · ' + (c.dataset.min > 0 ? c.dataset.s + ' session' + (c.dataset.s == 1 ? '' : 's') + ' · ' + c.dataset.min + ' min' : 'nothing logged');
+    el.tip.style.left = (c.offsetLeft + c.offsetWidth / 2 - el.wrap.scrollLeft) + 'px'; el.tip.style.top = c.offsetTop + 'px'; el.tip.hidden = false;
+  });
+  el.grid.addEventListener('mouseleave', () => { el.tip.hidden = true; });
+  el.logBtn.addEventListener('click', () => {
+    const log = readLog(); const k = key(new Date()); const r = log[k] || { sessions: 0, minutes: 0 };
+    r.sessions += 1; r.minutes += 25; log[k] = r;
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch (_) {}
+    render();
+  });
+  window.addEventListener('storage', (e) => { if (e.key === LOG_KEY) render(); });
+  window.addEventListener('resize', render);
+  render();
+})();
+</script>
+</body>
+</html>

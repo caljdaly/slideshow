@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day Strip</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #0a0c12; --surface: #12151e; --surface-2: #1a1e2a; --line: #262b3a;
+    --text: #e7eaf3; --muted: #7e8799;
+    --violet: #7c5cff; --cyan: #4fd1ff; --magenta: #ff6bd6;
+    --display: "Chakra Petch", "Bahnschrift", "DIN Alternate", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); font-size: 13px; line-height: 1.4; overflow: hidden; }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  .frame { height: 100%; display: grid; grid-template-rows: auto 1fr auto; padding: 10px 14px 12px; gap: 8px; }
+
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .day { font-family: var(--display); font-weight: 600; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .day .tick { width: 6px; height: 6px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+  .clock { font-family: var(--display); font-weight: 600; font-size: 22px; letter-spacing: .06em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .clock small { font-size: 11px; color: var(--muted); letter-spacing: .12em; margin-left: 4px; }
+
+  .strip { position: relative; min-height: 44px; }
+  .strip .track { position: absolute; left: 0; right: 0; top: 14px; bottom: 16px; background: var(--surface); border: 1px solid var(--line); }
+  .strip .hour { position: absolute; top: 14px; bottom: 16px; width: 1px; background: var(--line); }
+  .strip .hour span { position: absolute; top: 100%; margin-top: 3px; transform: translateX(-50%); font-family: var(--display); font-size: 9px; letter-spacing: .08em; color: var(--muted); }
+  .strip .block {
+    position: absolute; top: 17px; bottom: 19px; background: rgba(124,92,255,.28); border: 1px solid rgba(124,92,255,.7);
+    overflow: hidden; display: flex; align-items: center; padding: 0 6px;
+    font-family: var(--display); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text); white-space: nowrap;
+  }
+  .strip .block.past { opacity: .45; }
+  .strip .block.now { background: rgba(79,209,255,.22); border-color: var(--cyan); box-shadow: 0 0 14px rgba(79,209,255,.35); }
+  .strip .now-line { position: absolute; top: 8px; bottom: 10px; width: 2px; background: var(--magenta); box-shadow: 0 0 10px var(--magenta); }
+  .strip .now-line::before { content: ""; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; background: var(--magenta); transform: rotate(45deg); }
+
+  .status { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; }
+  .status .label { font-family: var(--display); font-weight: 600; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .status .main { font-size: 15px; font-weight: 500; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status .main .hi { color: var(--cyan); }
+  .status .sub { color: var(--muted); font-size: 12px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status .big { font-family: var(--display); font-weight: 600; font-size: 26px; letter-spacing: .04em; font-variant-numeric: tabular-nums; line-height: 1; text-align: right; }
+  .status .big small { display: block; font-size: 10px; letter-spacing: .14em; color: var(--muted); margin-top: 3px; }
+  .status.free .big { color: var(--cyan); }
+  .status.busy .big { color: var(--violet); }
+  @media (max-width: 420px) { .status .main { font-size: 14px; } .status .big { font-size: 22px; } }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="head">
+    <div class="day"><span class="tick" aria-hidden="true"></span><span id="dayLabel">—</span></div>
+    <div class="clock" id="clock">--:--</div>
+  </div>
+  <div class="strip" id="strip"><div class="track"></div></div>
+  <div class="status" id="status">
+    <div>
+      <div class="label" id="statusLabel">right now</div>
+      <div class="main" id="statusMain">—</div>
+      <div class="sub" id="statusSub"></div>
+    </div>
+    <div class="big" id="big">--<small id="bigLabel"></small></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- Weekly timetable (24h, local time). Edit here when the schedule changes.
+  // Days: 0 = Sunday … 6 = Saturday.
+  const WEEK = {
+    1: [ ['17:00', '21:30', 'Biochem 376 lab', 'ISB 260'] ],
+    2: [ ['09:00', '10:00', 'Journal club'], ['10:00', '11:15', 'Biochem 423', 'South College W245'], ['14:30', '17:30', 'Bio 479', 'Morrill II 337'] ],
+    3: [ ['13:30', '17:15', 'Bio 384', 'ISB 264'] ],
+    4: [ ['09:00', '10:00', 'Lab meeting', 'online'], ['10:00', '11:15', 'Biochem 423', 'South College W245'], ['14:30', '15:20', 'Bio 479 discussion', 'Morrill N326'] ],
+    5: [],
+    6: [], 0: [],
+  };
+  const DAY_START = 8, DAY_END = 22;         // hours shown on the strip
+  const NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  const $ = (id) => document.getElementById(id);
+  const el = { dayLabel: $('dayLabel'), clock: $('clock'), strip: $('strip'), status: $('status'), statusLabel: $('statusLabel'),
+    statusMain: $('statusMain'), statusSub: $('statusSub'), big: $('big'), bigLabel: $('bigLabel') };
+
+  const toMin = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+  const fmtClock = (min) => { let h = Math.floor(min / 60) % 24, m = min % 60; const ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ap; };
+  const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h = Math.floor(min / 60), m = min % 60; return h ? h + 'h ' + String(m).padStart(2, '0') + 'm' : m + 'm'; };
+
+  // ?day=tue lets you preview another weekday; ?t=14:05 fakes the time.
+  const params = new URLSearchParams(location.search);
+  const previewDay = params.get('day'); const previewTime = params.get('t');
+  function now() {
+    const d = new Date();
+    let dow = d.getDay(), min = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+    if (previewDay) { const i = NAMES.findIndex(n => n.toLowerCase().startsWith(previewDay.toLowerCase())); if (i >= 0) dow = i; }
+    if (previewTime) min = toMin(previewTime);
+    return { d, dow, min };
+  }
+
+  let builtFor = -1;
+  function buildStrip(dow) {
+    el.strip.querySelectorAll('.hour, .block, .now-line').forEach(n => n.remove());
+    const span = (DAY_END - DAY_START) * 60;
+    for (let h = DAY_START; h <= DAY_END; h += 2) {
+      const x = ((h * 60 - DAY_START * 60) / span) * 100;
+      const div = document.createElement('div'); div.className = 'hour'; div.style.left = x + '%';
+      const s = document.createElement('span'); s.textContent = (h % 12 || 12) + (h >= 12 ? 'p' : 'a'); div.appendChild(s);
+      el.strip.appendChild(div);
+    }
+    (WEEK[dow] || []).forEach((b, i) => {
+      const s = toMin(b[0]), e = toMin(b[1]);
+      const left = ((s - DAY_START * 60) / span) * 100, width = ((e - s) / span) * 100;
+      const div = document.createElement('div'); div.className = 'block'; div.dataset.i = i;
+      div.style.left = left + '%'; div.style.width = width + '%'; div.textContent = b[2]; div.title = b[2] + ' · ' + fmtClock(s) + '–' + fmtClock(e) + (b[3] ? ' · ' + b[3] : '');
+      el.strip.appendChild(div);
+    });
+    const line = document.createElement('div'); line.className = 'now-line'; line.id = 'nowLine'; el.strip.appendChild(line);
+    builtFor = dow;
+  }
+
+  function tick() {
+    const { d, dow, min } = now();
+    if (builtFor !== dow) buildStrip(dow);
+    const span = (DAY_END - DAY_START) * 60;
+    const x = Math.min(100, Math.max(0, ((min - DAY_START * 60) / span) * 100));
+    const line = $('nowLine'); line.style.left = x + '%'; line.hidden = min < DAY_START * 60 || min > DAY_END * 60;
+
+    el.dayLabel.textContent = NAMES[dow] + ' · ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const h24 = Math.floor(min / 60), mm = Math.floor(min % 60);
+    el.clock.innerHTML = ((h24 % 12) || 12) + ':' + String(mm).padStart(2, '0') + '<small>' + (h24 >= 12 ? 'PM' : 'AM') + '</small>';
+
+    const blocks = (WEEK[dow] || []).map(b => ({ s: toMin(b[0]), e: toMin(b[1]), name: b[2], where: b[3] }));
+    const cur = blocks.find(b => min >= b.s && min < b.e);
+    const next = blocks.find(b => b.s > min);
+    el.strip.querySelectorAll('.block').forEach((div, i) => {
+      div.classList.toggle('now', !!cur && blocks[i] === cur);
+      div.classList.toggle('past', blocks[i].e <= min);
+    });
+
+    el.status.classList.remove('free', 'busy');
+    if (cur) {
+      el.status.classList.add('busy');
+      el.statusLabel.textContent = 'in session';
+      el.statusMain.innerHTML = '<span class="hi">' + cur.name + '</span>' + (cur.where ? ' · ' + cur.where : '');
+      el.statusSub.textContent = 'until ' + fmtClock(cur.e) + (next ? ' · then ' + next.name + ' at ' + fmtClock(next.s) : ' · nothing after');
+      el.big.firstChild.textContent = fmtDur(cur.e - min); el.bigLabel.textContent = 'left';
+    } else if (next) {
+      el.status.classList.add('free');
+      const gap = next.s - min;
+      el.statusLabel.textContent = 'free';
+      el.statusMain.innerHTML = 'Next: <span class="hi">' + next.name + '</span> at ' + fmtClock(next.s) + (next.where ? ' · ' + next.where : '');
+      el.statusSub.textContent = gap >= 90 ? 'Room for a real work block' : gap >= 30 ? 'Enough for one focused stretch' : 'Not enough to start anything big';
+      el.big.firstChild.textContent = fmtDur(gap); el.bigLabel.textContent = 'until';
+    } else {
+      el.status.classList.add('free');
+      el.statusLabel.textContent = blocks.length ? 'done for today' : 'no classes';
+      el.statusMain.innerHTML = blocks.length ? 'Nothing else scheduled' : 'Open day';
+      // find the next day with something on it
+      let k = 1, nd = null; while (k <= 7 && !nd) { const dd = (dow + k) % 7; if ((WEEK[dd] || []).length) nd = { dd, b: WEEK[dd][0] }; k++; }
+      el.statusSub.textContent = nd ? 'Next up: ' + nd.b[2] + ' ' + (k - 1 === 1 ? 'tomorrow' : NAMES[nd.dd]) + ' at ' + fmtClock(toMin(nd.b[0])) : '';
+      el.big.firstChild.textContent = '—'; el.bigLabel.textContent = '';
+    }
+  }
+
+  tick();
+  setInterval(tick, 15000);
+})();
+</script>
+</body>
+</html>
